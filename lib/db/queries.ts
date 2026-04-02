@@ -47,6 +47,61 @@ export async function getUser(email: string): Promise<User[]> {
   }
 }
 
+export async function getUserById({
+  id,
+}: {
+  id: string;
+}): Promise<User | null> {
+  try {
+    const [selectedUser] = await db.select().from(user).where(eq(user.id, id));
+    return selectedUser || null;
+  } catch (_error) {
+    throw new ChatbotError("bad_request:database", "Failed to get user by id");
+  }
+}
+
+export async function updateUserMemoryById({
+  id,
+  name,
+  preferences,
+}: {
+  id: string;
+  name?: string | null;
+  preferences: User["preferences"];
+}) {
+  try {
+    const updateData: {
+      updatedAt: Date;
+      name?: string | null;
+      preferences: User["preferences"];
+    } = {
+      updatedAt: new Date(),
+      preferences,
+    };
+
+    if (name !== undefined) {
+      updateData.name = name;
+    }
+
+    const [updatedUser] = await db
+      .update(user)
+      .set(updateData)
+      .where(eq(user.id, id))
+      .returning({
+        id: user.id,
+        name: user.name,
+        preferences: user.preferences,
+      });
+
+    return updatedUser;
+  } catch (_error) {
+    throw new ChatbotError(
+      "bad_request:database",
+      "Failed to update user memory"
+    );
+  }
+}
+
 export async function createUser(email: string, password: string) {
   const hashedPassword = generateHashedPassword(password);
 

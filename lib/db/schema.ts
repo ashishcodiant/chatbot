@@ -9,6 +9,7 @@ import {
   timestamp,
   uuid,
   varchar,
+  vector,
 } from "drizzle-orm/pg-core";
 
 export const user = pgTable("User", {
@@ -19,6 +20,7 @@ export const user = pgTable("User", {
   emailVerified: boolean("emailVerified").notNull().default(false),
   image: text("image"),
   isAnonymous: boolean("isAnonymous").notNull().default(false),
+  preferences: json("preferences"), // Long-term user memory
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
 });
@@ -134,3 +136,105 @@ export const stream = pgTable(
 );
 
 export type Stream = InferSelectModel<typeof stream>;
+
+// --- Looply POC Tables ---
+
+export const customer = pgTable("Customer", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  name: text("name").notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  userId: uuid("userId")
+    .notNull()
+    .references(() => user.id),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+
+export type Customer = InferSelectModel<typeof customer>;
+
+export const product = pgTable("Product", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  name: text("name").notNull(),
+  price: text("price").notNull(), // Numeric as text to avoid precision issues in Drizzle
+  userId: uuid("userId")
+    .notNull()
+    .references(() => user.id),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+
+export type Product = InferSelectModel<typeof product>;
+
+export const transaction = pgTable("Transaction", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  customerId: uuid("customerId")
+    .notNull()
+    .references(() => customer.id),
+  productId: uuid("productId")
+    .notNull()
+    .references(() => product.id),
+  amount: text("amount").notNull(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+
+export type Transaction = InferSelectModel<typeof transaction>;
+
+export const campaign = pgTable("Campaign", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  userId: uuid("userId")
+    .notNull()
+    .references(() => user.id),
+  segment: text("segment").notNull(),
+  message: text("message").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("draft"), // draft, sending, completed, failed
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+
+export type Campaign = InferSelectModel<typeof campaign>;
+
+export const campaignLog = pgTable("CampaignLog", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  campaignId: uuid("campaignId")
+    .notNull()
+    .references(() => campaign.id),
+  customerId: uuid("customerId")
+    .notNull()
+    .references(() => customer.id),
+  status: varchar("status", { length: 20 }).notNull(), // sent, failed
+  error: text("error"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+
+export type CampaignLog = InferSelectModel<typeof campaignLog>;
+
+export const customerMetrics = pgTable("CustomerMetrics", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  customerId: uuid("customerId")
+    .notNull()
+    .references(() => customer.id),
+  ltv: text("ltv").notNull().default("0"),
+  churnRisk: text("churnRisk").notNull().default("0"),
+  recency: text("recency").notNull(), // Days since last purchase
+  frequency: text("frequency").notNull(), // Number of purchases
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
+
+export type CustomerMetrics = InferSelectModel<typeof customerMetrics>;
+
+export const documentChunk = pgTable(
+  "DocumentChunk",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    documentId: uuid("documentId").notNull(),
+    documentCreatedAt: timestamp("documentCreatedAt").notNull(),
+    content: text("content").notNull(),
+    embedding: vector("embedding", { dimensions: 1536 }), // OpenAI standard
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+  },
+  (table) => ({
+    documentRef: foreignKey({
+      columns: [table.documentId, table.documentCreatedAt],
+      foreignColumns: [document.id, document.createdAt],
+    }),
+  })
+);
+
+export type DocumentChunk = InferSelectModel<typeof documentChunk>;

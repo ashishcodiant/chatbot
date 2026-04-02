@@ -13,6 +13,16 @@ import { createResumableStreamContext } from "resumable-stream";
 import { auth, type UserType } from "@/app/(auth)/auth";
 import { entitlementsByUserType } from "@/lib/ai/entitlements";
 import {
+  createFallbackChatTitle,
+  inferMemoryFromUserMessage,
+  isPlaceholderChatTitle,
+  mergeUserMemory,
+  normalizeUserMemory,
+  recordAssistantMessageMemory,
+  recordUserMessageMemory,
+  renameRecentChatMemory,
+} from "@/lib/ai/memory";
+import {
   allowedModelIds,
   chatModels,
   DEFAULT_CHAT_MODEL,
@@ -23,6 +33,21 @@ import { getLanguageModel } from "@/lib/ai/providers";
 import { createDocument } from "@/lib/ai/tools/create-document";
 import { editDocument } from "@/lib/ai/tools/edit-document";
 import { getWeather } from "@/lib/ai/tools/get-weather";
+import {
+  createCampaign,
+  getCampaignLogs,
+  getCustomerByReference,
+  getChurnRiskCustomers,
+  getCustomerLTV,
+  getTopCustomers,
+  sendCampaign,
+} from "@/lib/ai/tools/looply";
+import { updateUserPreferences } from "@/lib/ai/tools/memory";
+import {
+  processDocument,
+  processDocumentFromUrl,
+  searchKnowledgeBase,
+} from "@/lib/ai/tools/rag";
 import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
 import { updateDocument } from "@/lib/ai/tools/update-document";
 import { isProductionEnvironment } from "@/lib/constants";
@@ -32,16 +57,23 @@ import {
   getChatById,
   getMessageCountByUserId,
   getMessagesByChatId,
+  getUserById,
   saveChat,
+  saveDocument,
   saveMessages,
   updateChatTitleById,
   updateMessage,
+  updateUserMemoryById,
 } from "@/lib/db/queries";
 import type { DBMessage } from "@/lib/db/schema";
 import { ChatbotError } from "@/lib/errors";
 import { checkIpRateLimit } from "@/lib/ratelimit";
 import type { ChatMessage } from "@/lib/types";
-import { convertToUIMessages, generateUUID } from "@/lib/utils";
+import {
+  convertToUIMessages,
+  generateUUID,
+  getTextFromMessage,
+} from "@/lib/utils";
 import { generateTitleFromUserMessage } from "../../actions";
 import { type PostRequestBody, postRequestBodySchema } from "./schema";
 
@@ -56,6 +88,46 @@ function getStreamContext() {
 }
 
 export { getStreamContext };
+
+function getPdfParts(message?: ChatMessage) {
+  if (!message || message.role !== "user") {
+    return [];
+  }
+
+  return message.parts.filter(
+    (
+      part
+    ): part is {
+      type: "file";
+      url: string;
+      filename: string;
+      mediaType: "application/pdf";
+    } =>
+      part.type === "file" &&
+      part.mediaType === "application/pdf" &&
+      typeof part.url === "string"
+  );
+}
+
+function sanitizeMessageForModel(message: ChatMessage): ChatMessage {
+  const parts = message.parts.flatMap((part) => {
+    if (part.type === "file" && part.mediaType === "application/pdf") {
+      return [
+        {
+          type: "text" as const,
+          text: `User uploaded PDF document "${part.filename}". It has been indexed for knowledge-base retrieval.`,
+        },
+      ];
+    }
+
+    return [part];
+  });
+
+  return {
+    ...message,
+    parts,
+  };
+}
 
 export async function POST(request: Request) {
   let requestBody: PostRequestBody;
@@ -100,6 +172,31 @@ export async function POST(request: Request) {
     const isToolApprovalFlow = Boolean(messages);
 
     const chat = await getChatById({ id });
+    const userFromDb = await getUserById({ id: session.user.id });
+    let userMemory = normalizeUserMemory(
+      userFromDb?.preferences,
+      userFromDb?.name
+    );
+    let persistedUserName = userMemory.profile.name ?? userFromDb?.name ?? null;
+    const userMessageText =
+      message?.role === "user" ? getTextFromMessage(message) : "";
+    const fallbackTitle = createFallbackChatTitle(userMessageText);
+    let resolvedChatTitle = chat?.title ?? fallbackTitle;
+
+    const persistUserMemory = async (
+      nextMemory: typeof userMemory,
+      nextUserName = persistedUserName
+    ) => {
+      userMemory = nextMemory;
+      persistedUserName = nextUserName;
+
+      await updateUserMemoryById({
+        id: session.user.id,
+        name: persistedUserName,
+        preferences: userMemory,
+      });
+    };
+
     let messagesFromDb: DBMessage[] = [];
     let titlePromise: Promise<string> | null = null;
 
@@ -108,13 +205,21 @@ export async function POST(request: Request) {
         return new ChatbotError("forbidden:chat").toResponse();
       }
       messagesFromDb = await getMessagesByChatId({ id });
+      if (
+        message?.role === "user" &&
+        isPlaceholderChatTitle(chat.title) &&
+        userMessageText
+      ) {
+        titlePromise = generateTitleFromUserMessage({ message });
+      }
     } else if (message?.role === "user") {
       await saveChat({
         id,
         userId: session.user.id,
-        title: "New chat",
+        title: fallbackTitle,
         visibility: selectedVisibilityType,
       });
+      resolvedChatTitle = fallbackTitle;
       titlePromise = generateTitleFromUserMessage({ message });
     }
 
@@ -166,6 +271,19 @@ export async function POST(request: Request) {
     };
 
     if (message?.role === "user") {
+      let nextMemory = recordUserMessageMemory(userMemory, {
+        chatId: id,
+        title: resolvedChatTitle,
+        userMessage: userMessageText,
+      });
+      const inferredMemory = inferMemoryFromUserMessage(userMessageText);
+      nextMemory = mergeUserMemory(nextMemory, inferredMemory.memoryPatch);
+
+      await persistUserMemory(
+        nextMemory,
+        inferredMemory.inferredName ?? persistedUserName
+      );
+
       await saveMessages({
         messages: [
           {
@@ -186,14 +304,53 @@ export async function POST(request: Request) {
     const isReasoningModel = capabilities?.reasoning === true;
     const supportsTools = capabilities?.tools === true;
 
-    const modelMessages = await convertToModelMessages(uiMessages);
+    const modelReadyMessages = uiMessages.map(sanitizeMessageForModel);
+    const pdfParts = getPdfParts(message);
+    const modelMessages = await convertToModelMessages(modelReadyMessages);
 
     const stream = createUIMessageStream({
       originalMessages: isToolApprovalFlow ? uiMessages : undefined,
       execute: async ({ writer: dataStream }) => {
+        if (pdfParts.length > 0) {
+          for (const pdfPart of pdfParts) {
+            try {
+              const [savedDocument] = await saveDocument({
+                id: generateUUID(),
+                title: pdfPart.filename,
+                kind: "text",
+                content: `Source PDF: ${pdfPart.url}`,
+                userId: session.user.id,
+              });
+
+              await processDocumentFromUrl({
+                documentId: savedDocument.id,
+                documentCreatedAt: savedDocument.createdAt,
+                url: pdfPart.url,
+                onStatus: (statusMessage) => {
+                  dataStream.write({
+                    type: "data-textDelta",
+                    data: ` [status: ${statusMessage}] `,
+                  });
+                },
+              });
+            } catch (error) {
+              const message =
+                error instanceof Error ? error.message : "Unknown PDF error";
+              dataStream.write({
+                type: "data-textDelta",
+                data: ` [error: Failed to index "${pdfPart.filename}": ${message}] `,
+              });
+            }
+          }
+        }
+
         const result = streamText({
           model: getLanguageModel(chatModel),
-          system: systemPrompt({ requestHints, supportsTools }),
+          system: systemPrompt({
+            requestHints,
+            supportsTools,
+            userPreferences: userMemory,
+          }),
           messages: modelMessages,
           stopWhen: stepCountIs(5),
           experimental_activeTools:
@@ -205,6 +362,16 @@ export async function POST(request: Request) {
                   "editDocument",
                   "updateDocument",
                   "requestSuggestions",
+                  "getTopCustomers",
+                  "getChurnRiskCustomers",
+                  "getCustomerByReference",
+                  "getCustomerLTV",
+                  "createCampaign",
+                  "getCampaignLogs",
+                  "sendCampaign",
+                  "processDocument",
+                  "searchKnowledgeBase",
+                  "updateUserPreferences",
                 ],
           providerOptions: {
             ...(modelConfig?.gatewayOrder && {
@@ -232,6 +399,25 @@ export async function POST(request: Request) {
               dataStream,
               modelId: chatModel,
             }),
+            getTopCustomers: getTopCustomers({ session, dataStream }),
+            getChurnRiskCustomers: getChurnRiskCustomers({
+              session,
+              dataStream,
+            }),
+            getCustomerByReference: getCustomerByReference({
+              session,
+              dataStream,
+            }),
+            getCustomerLTV: getCustomerLTV({ session, dataStream }),
+            createCampaign: createCampaign({ session, dataStream }),
+            getCampaignLogs: getCampaignLogs({ session, dataStream }),
+            sendCampaign: sendCampaign({ session, dataStream }),
+            processDocument: processDocument({ session, dataStream }),
+            searchKnowledgeBase: searchKnowledgeBase({ session, dataStream }),
+            updateUserPreferences: updateUserPreferences({
+              session,
+              dataStream,
+            }),
           },
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,
@@ -245,8 +431,17 @@ export async function POST(request: Request) {
 
         if (titlePromise) {
           const title = await titlePromise;
-          dataStream.write({ type: "data-chat-title", data: title });
-          updateChatTitleById({ chatId: id, title });
+          if (title && title !== resolvedChatTitle) {
+            resolvedChatTitle = title;
+            dataStream.write({ type: "data-chat-title", data: title });
+            await updateChatTitleById({ chatId: id, title });
+            await persistUserMemory(
+              renameRecentChatMemory(userMemory, {
+                chatId: id,
+                title,
+              })
+            );
+          }
         }
       },
       generateId: generateUUID,
@@ -285,6 +480,23 @@ export async function POST(request: Request) {
               chatId: id,
             })),
           });
+        }
+
+        const latestAssistantMessage = [...finishedMessages]
+          .reverse()
+          .find((currentMessage) => currentMessage.role === "assistant");
+        const assistantText = latestAssistantMessage
+          ? getTextFromMessage(latestAssistantMessage)
+          : "";
+
+        if (assistantText) {
+          await persistUserMemory(
+            recordAssistantMessageMemory(userMemory, {
+              chatId: id,
+              title: resolvedChatTitle,
+              assistantMessage: assistantText,
+            })
+          );
         }
       },
       onError: (error) => {

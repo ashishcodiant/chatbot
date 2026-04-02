@@ -228,13 +228,17 @@ function PureMultimodalInput({
         ...attachments.map((attachment) => ({
           type: "file" as const,
           url: attachment.url,
-          name: attachment.name,
+          filename: attachment.name,
           mediaType: attachment.contentType,
         })),
-        {
-          type: "text",
-          text: input,
-        },
+        ...(input.trim()
+          ? [
+              {
+                type: "text" as const,
+                text: input,
+              },
+            ]
+          : []),
       ],
     });
 
@@ -399,6 +403,7 @@ function PureMultimodalInput({
         )}
 
       <input
+        accept="application/pdf,image/jpeg,image/png"
         className="pointer-events-none fixed -top-4 -left-4 size-0.5 opacity-0"
         multiple
         onChange={handleFileChange}
@@ -539,7 +544,10 @@ function PureMultimodalInput({
                   : "bg-muted text-muted-foreground/25 cursor-not-allowed"
               )}
               data-testid="send-button"
-              disabled={!input.trim() || uploadQueue.length > 0}
+              disabled={
+                (input.trim().length === 0 && attachments.length === 0) ||
+                uploadQueue.length > 0
+              }
               status={status}
               variant="secondary"
             >
@@ -602,17 +610,19 @@ function PureAttachmentsButton({
   const caps: Record<string, ModelCapabilities> | undefined =
     modelsResponse?.capabilities ?? modelsResponse;
   const hasVision = caps?.[selectedModelId]?.vision ?? false;
+  const hasTools = caps?.[selectedModelId]?.tools ?? false;
+  const canUpload = hasVision || hasTools;
 
   return (
     <Button
       className={cn(
         "h-7 w-7 rounded-lg border border-border/40 p-1 transition-colors",
-        hasVision
+        canUpload
           ? "text-foreground hover:border-border hover:text-foreground"
           : "text-muted-foreground/30 cursor-not-allowed"
       )}
       data-testid="attachments-button"
-      disabled={status !== "ready" || !hasVision}
+      disabled={status !== "ready" || !canUpload}
       onClick={(event) => {
         event.preventDefault();
         fileInputRef.current?.click();

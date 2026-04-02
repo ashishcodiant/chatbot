@@ -1,71 +1,165 @@
-<a href="https://chat.vercel.ai/">
-  <img alt="Chatbot" src="app/(chat)/opengraph-image.png">
-  <h1 align="center">Chatbot</h1>
-</a>
+# Looply AI Agent POC
 
-<p align="center">
-    Chatbot (formerly AI Chatbot) is a free, open-source template built with Next.js and the AI SDK that helps you quickly build powerful chatbot applications.
-</p>
+Looply AI is a production-style business assistant built on top of the Vercel Chatbot template. It combines chat, tool calling, memory, RAG over uploaded PDFs, campaign generation, SES delivery, and background analytics in one Next.js app.
 
-<p align="center">
-  <a href="https://chatbot.dev"><strong>Read Docs</strong></a> ·
-  <a href="#features"><strong>Features</strong></a> ·
-  <a href="#model-providers"><strong>Model Providers</strong></a> ·
-  <a href="#deploy-your-own"><strong>Deploy Your Own</strong></a> ·
-  <a href="#running-locally"><strong>Running locally</strong></a>
-</p>
-<br/>
+## What This POC Covers
 
-## Features
+- Customer, product, transaction, campaign, campaign log, and customer metrics tables
+- Multi-tool agent flows for customer analysis and campaigns
+- Multi-layer memory:
+  - short-term conversation carryover
+  - long-term structured user memory
+  - emulative memory for response style
+  - analytical memory via `customer_metrics`
+- RAG over uploaded PDF documents using pgvector-compatible embeddings
+- AWS SES campaign sending with DB logging
+- Streaming chat responses with intermediate status updates
+- Background analytics job entrypoints
 
-- [Next.js](https://nextjs.org) App Router
-  - Advanced routing for seamless navigation and performance
-  - React Server Components (RSCs) and Server Actions for server-side rendering and increased performance
-- [AI SDK](https://ai-sdk.dev/docs/introduction)
-  - Unified API for generating text, structured objects, and tool calls with LLMs
-  - Hooks for building dynamic chat and generative user interfaces
-  - Supports OpenAI, Anthropic, Google, xAI, and other model providers via AI Gateway
-- [shadcn/ui](https://ui.shadcn.com)
-  - Styling with [Tailwind CSS](https://tailwindcss.com)
-  - Component primitives from [Radix UI](https://radix-ui.com) for accessibility and flexibility
-- Data Persistence
-  - [Neon Serverless Postgres](https://vercel.com/marketplace/neon) for saving chat history and user data
-  - [Vercel Blob](https://vercel.com/storage/blob) for efficient file storage
-- [Auth.js](https://authjs.dev)
-  - Simple and secure authentication
+## Architecture Overview
 
-## Model Providers
+### App layer
 
-This template uses the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) to access multiple AI models through a unified interface. Models are configured in `lib/ai/models.ts` with per-model provider routing. Included models: Mistral, Moonshot, DeepSeek, OpenAI, and xAI.
+- Next.js App Router handles chat UI, API routes, auth, and server actions
+- Chat streaming is implemented in [app/(chat)/api/chat/route.ts](app/(chat)/api/chat/route.ts)
+- File uploads are handled by [app/(chat)/api/files/upload/route.ts](app/(chat)/api/files/upload/route.ts)
+- Scheduled analytics can be triggered through [app/api/jobs/analytics/route.ts](app/api/jobs/analytics/route.ts)
 
-### AI Gateway Authentication
+### AI layer
 
-**For Vercel deployments**: Authentication is handled automatically via OIDC tokens.
+- Main chat orchestration lives in [app/(chat)/api/chat/route.ts](app/(chat)/api/chat/route.ts)
+- Prompt and memory injection live in [lib/ai/prompts.ts](lib/ai/prompts.ts)
+- Business tools live in:
+  - [lib/ai/tools/looply.ts](lib/ai/tools/looply.ts)
+  - [lib/ai/tools/rag.ts](lib/ai/tools/rag.ts)
+  - [lib/ai/tools/memory.ts](lib/ai/tools/memory.ts)
 
-**For non-Vercel deployments**: You need to provide an AI Gateway API key by setting the `AI_GATEWAY_API_KEY` environment variable in your `.env.local` file.
+### Data layer
 
-With the [AI SDK](https://ai-sdk.dev/docs/introduction), you can also switch to direct LLM providers like [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Cohere](https://cohere.com/), and [many more](https://ai-sdk.dev/providers/ai-sdk-providers) with just a few lines of code.
+- Drizzle schema is defined in [lib/db/schema.ts](lib/db/schema.ts)
+- General chatbot queries live in [lib/db/queries.ts](lib/db/queries.ts)
+- Looply-specific business queries live in [lib/db/looply-queries.ts](lib/db/looply-queries.ts)
+- Migrations live in [lib/db/migrations](lib/db/migrations)
 
-## Deploy Your Own
+### Jobs and integrations
 
-You can deploy your own version of Chatbot to Vercel with one click:
+- Customer analytics job logic lives in [lib/jobs/analytics.ts](lib/jobs/analytics.ts)
+- SES client config lives in [lib/ses-client.ts](lib/ses-client.ts)
+- Manual scripts live in [scripts](scripts)
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/templates/next.js/chatbot)
+## Schema Design
 
-## Running locally
+### Core Looply tables
 
-You will need to use the environment variables [defined in `.env.example`](.env.example) to run Chatbot. It's recommended you use [Vercel Environment Variables](https://vercel.com/docs/projects/environment-variables) for this, but a `.env` file is all that is necessary.
+- `Customer`: customer identity and ownership
+- `Product`: catalog items and ownership
+- `Transaction`: purchase records
+- `Campaign`: marketing drafts and send state
+- `CampaignLog`: per-recipient send results
+- `CustomerMetrics`: precomputed LTV, churn risk, recency, frequency
+- `DocumentChunk`: embedded PDF chunks for semantic retrieval
 
-> Note: You should not commit your `.env` file or it will expose secrets that will allow others to control access to your various AI and authentication provider accounts.
+### Memory storage
 
-1. Install Vercel CLI: `npm i -g vercel`
-2. Link local instance with Vercel and GitHub accounts (creates `.vercel` directory): `vercel link`
-3. Download your environment variables: `vercel env pull`
+- User memory is stored in `User.preferences`
+- The memory object currently includes:
+  - `profile`
+  - `shortTerm`
+  - `longTerm`
+  - `emulative`
+
+### Notes
+
+- `DocumentChunk` references the versioned `Document` record using `(documentId, documentCreatedAt)`
+- `customer_metrics` is the analytical memory layer used for cached business insights
+
+## Agent Flow
+
+### Campaign flow
+
+Typical flow for a request like "find inactive customers and send them a discount email":
+
+1. Identify the intent from the user message.
+2. Call `getChurnRiskCustomers`.
+3. Draft content with `createCampaign`.
+4. Ask for confirmation before sending.
+5. Send via `sendCampaign`.
+6. Log per-recipient results in `CampaignLog`.
+
+### RAG flow
+
+1. User uploads a PDF.
+2. The PDF is stored in Blob storage.
+3. On send, the chat route auto-indexes the PDF:
+   - parse text
+   - chunk text
+   - generate embeddings
+   - store chunks in `DocumentChunk`
+4. Later questions use `searchKnowledgeBase` to retrieve relevant chunks.
+
+### Memory flow
+
+1. User messages update short-term and long-term memory.
+2. Stable facts like names and business context are extracted and persisted.
+3. Memory is injected into the system prompt on future requests.
+
+## Local Setup
+
+### Prerequisites
+
+- Node.js 20+
+- Postgres with pgvector enabled
+- Vercel Blob credentials
+- OpenAI API key for embeddings
+- AWS SES credentials for campaign sending
+
+### Environment
+
+Copy [.env.example](.env.example) to `.env.local` and fill in:
+
+- `AUTH_SECRET`
+- `POSTGRES_URL`
+- `BLOB_READ_WRITE_TOKEN`
+- `AI_GATEWAY_API_KEY`
+- `OPENAI_API_KEY`
+- `AWS_REGION`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `SES_SENDER_EMAIL`
+- `CRON_SECRET`
+
+### Install and run
 
 ```bash
-pnpm install
-pnpm db:migrate # Setup database or apply latest database changes
-pnpm dev
+npm install
+npm run db:migrate
+npm run dev
 ```
 
-Your app template should now be running on [localhost:3000](http://localhost:3000).
+### Run analytics manually
+
+```bash
+npm run analytics:run
+```
+
+### Trigger analytics endpoint
+
+```bash
+curl -X POST http://localhost:3000/api/jobs/analytics \
+  -H "Authorization: Bearer YOUR_CRON_SECRET"
+```
+
+## Supported Example Prompts
+
+- `Who are my top 10 customers?`
+- `Which customers haven't purchased in 60 days?`
+- `What is the lifetime value of customer <id>?`
+- `Create a re-engagement campaign for inactive customers`
+- `Send that campaign`
+- `What does our refund policy say?`
+
+## Current Notes
+
+- PDF upload and indexing is now supported through the chat composer
+- The analytics job is schedulable through an API route, but actual deployment scheduling still needs to be configured in your hosting platform
+- SES requires a verified sender and, in sandbox accounts, verified recipients

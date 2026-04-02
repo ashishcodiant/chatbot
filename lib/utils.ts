@@ -79,9 +79,25 @@ export function convertToUIMessages(messages: DBMessage[]): ChatMessage[] {
   }));
 }
 
+export function getTextFromMessageParts(parts: unknown): string {
+  if (!Array.isArray(parts)) {
+    return "";
+  }
+
+  return parts
+    .filter(
+      (part): part is { type: "text"; text: string } =>
+        typeof part === "object" &&
+        part !== null &&
+        "type" in part &&
+        "text" in part &&
+        (part as { type?: unknown }).type === "text" &&
+        typeof (part as { text?: unknown }).text === "string"
+    )
+    .map((part) => part.text)
+    .join("");
+}
+
 export function getTextFromMessage(message: ChatMessage | UIMessage): string {
-  return message.parts
-    .filter((part) => part.type === 'text')
-    .map((part) => (part as { type: 'text'; text: string}).text)
-    .join('');
+  return getTextFromMessageParts(message.parts);
 }

@@ -1,7 +1,17 @@
 import type { NextRequest } from "next/server";
 import { auth } from "@/app/(auth)/auth";
-import { deleteAllChatsByUserId, getChatsByUserId } from "@/lib/db/queries";
+import {
+  createFallbackChatTitle,
+  isPlaceholderChatTitle,
+} from "@/lib/ai/memory";
+import {
+  deleteAllChatsByUserId,
+  getChatsByUserId,
+  getMessagesByChatId,
+  updateChatTitleById,
+} from "@/lib/db/queries";
 import { ChatbotError } from "@/lib/errors";
+import { getTextFromMessageParts } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -33,7 +43,37 @@ export async function GET(request: NextRequest) {
     endingBefore,
   });
 
-  return Response.json(chats);
+  const chatsWithResolvedTitles = await Promise.all(
+    chats.chats.map(async (chat) => {
+      if (!isPlaceholderChatTitle(chat.title)) {
+        return chat;
+      }
+
+      const messages = await getMessagesByChatId({ id: chat.id });
+      const firstUserMessage = messages.find(
+        (message) => message.role === "user"
+      );
+      const derivedTitle = createFallbackChatTitle(
+        getTextFromMessageParts(firstUserMessage?.parts)
+      );
+
+      if (isPlaceholderChatTitle(derivedTitle)) {
+        return chat;
+      }
+
+      await updateChatTitleById({ chatId: chat.id, title: derivedTitle });
+
+      return {
+        ...chat,
+        title: derivedTitle,
+      };
+    })
+  );
+
+  return Response.json({
+    ...chats,
+    chats: chatsWithResolvedTitles,
+  });
 }
 
 export async function DELETE() {

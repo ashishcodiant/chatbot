@@ -4,6 +4,10 @@ import { generateText, type UIMessage } from "ai";
 import { cookies } from "next/headers";
 import { auth } from "@/app/(auth)/auth";
 import type { VisibilityType } from "@/components/chat/visibility-selector";
+import {
+  createFallbackChatTitle,
+  isPlaceholderChatTitle,
+} from "@/lib/ai/memory";
 import { titleModel } from "@/lib/ai/models";
 import { titlePrompt } from "@/lib/ai/prompts";
 import { getTitleModel } from "@/lib/ai/providers";
@@ -25,18 +29,32 @@ export async function generateTitleFromUserMessage({
 }: {
   message: UIMessage;
 }) {
-  const { text } = await generateText({
-    model: getTitleModel(),
-    system: titlePrompt,
-    prompt: getTextFromMessage(message),
-    providerOptions: {
-      gateway: { order: titleModel.gatewayOrder },
-    },
-  });
-  return text
-    .replace(/^[#*"\s]+/, "")
-    .replace(/["]+$/, "")
-    .trim();
+  const messageText = getTextFromMessage(message);
+  const fallbackTitle = createFallbackChatTitle(messageText);
+
+  try {
+    const { text } = await generateText({
+      model: getTitleModel(),
+      system: titlePrompt,
+      prompt: messageText,
+      providerOptions: {
+        gateway: { order: titleModel.gatewayOrder },
+      },
+    });
+
+    const generatedTitle = text
+      .replace(/^[#*"\s]+/, "")
+      .replace(/["]+$/, "")
+      .trim();
+
+    if (isPlaceholderChatTitle(generatedTitle)) {
+      return fallbackTitle;
+    }
+
+    return generatedTitle;
+  } catch (_error) {
+    return fallbackTitle;
+  }
 }
 
 export async function deleteTrailingMessages({ id }: { id: string }) {

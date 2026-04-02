@@ -3,6 +3,17 @@ import { z } from "zod";
 import type { ArtifactKind } from "@/components/chat/artifact";
 import type { createDocument } from "./ai/tools/create-document";
 import type { getWeather } from "./ai/tools/get-weather";
+import type {
+  createCampaign,
+  getCampaignLogs,
+  getCustomerByReference,
+  getChurnRiskCustomers,
+  getCustomerLTV,
+  getTopCustomers,
+  sendCampaign,
+} from "./ai/tools/looply";
+import type { updateUserPreferences } from "./ai/tools/memory";
+import type { processDocument, searchKnowledgeBase } from "./ai/tools/rag";
 import type { requestSuggestions } from "./ai/tools/request-suggestions";
 import type { updateDocument } from "./ai/tools/update-document";
 import type { Suggestion } from "./db/schema";
@@ -19,12 +30,40 @@ type updateDocumentTool = InferUITool<ReturnType<typeof updateDocument>>;
 type requestSuggestionsTool = InferUITool<
   ReturnType<typeof requestSuggestions>
 >;
+type getTopCustomersTool = InferUITool<ReturnType<typeof getTopCustomers>>;
+type getChurnRiskCustomersTool = InferUITool<
+  ReturnType<typeof getChurnRiskCustomers>
+>;
+type getCustomerByReferenceTool = InferUITool<
+  ReturnType<typeof getCustomerByReference>
+>;
+type getCustomerLTVTool = InferUITool<ReturnType<typeof getCustomerLTV>>;
+type createCampaignTool = InferUITool<ReturnType<typeof createCampaign>>;
+type getCampaignLogsTool = InferUITool<ReturnType<typeof getCampaignLogs>>;
+type sendCampaignTool = InferUITool<ReturnType<typeof sendCampaign>>;
+type processDocumentTool = InferUITool<ReturnType<typeof processDocument>>;
+type searchKnowledgeBaseTool = InferUITool<
+  ReturnType<typeof searchKnowledgeBase>
+>;
+type updateUserPreferencesTool = InferUITool<
+  ReturnType<typeof updateUserPreferences>
+>;
 
 export type ChatTools = {
   getWeather: weatherTool;
   createDocument: createDocumentTool;
   updateDocument: updateDocumentTool;
   requestSuggestions: requestSuggestionsTool;
+  getTopCustomers: getTopCustomersTool;
+  getChurnRiskCustomers: getChurnRiskCustomersTool;
+  getCustomerByReference: getCustomerByReferenceTool;
+  getCustomerLTV: getCustomerLTVTool;
+  createCampaign: createCampaignTool;
+  getCampaignLogs: getCampaignLogsTool;
+  sendCampaign: sendCampaignTool;
+  processDocument: processDocumentTool;
+  searchKnowledgeBase: searchKnowledgeBaseTool;
+  updateUserPreferences: updateUserPreferencesTool;
 };
 
 export type CustomUIDataTypes = {

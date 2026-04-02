@@ -1,4 +1,4 @@
-export const DEFAULT_CHAT_MODEL = "moonshotai/kimi-k2-0905";
+export const DEFAULT_CHAT_MODEL = "openai/gpt-4o-mini";
 
 export const titleModel = {
   id: "mistral/mistral-small",
@@ -60,6 +60,13 @@ export const chatModels: ChatModel[] = [
     gatewayOrder: ["fireworks", "bedrock"],
   },
   {
+    id: "openai/gpt-4o",
+    name: "GPT-4o",
+    provider: "openai",
+    description: "High-performance flagship model",
+    gatewayOrder: ["openai"],
+  },
+  {
     id: "openai/gpt-oss-20b",
     name: "GPT OSS 20B",
     provider: "openai",
@@ -75,6 +82,7 @@ export const chatModels: ChatModel[] = [
     gatewayOrder: ["fireworks", "bedrock"],
     reasoningEffort: "low",
   },
+  
   {
     id: "xai/grok-4.1-fast-non-reasoning",
     name: "Grok 4.1 Fast",
