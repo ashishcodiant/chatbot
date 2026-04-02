@@ -110,7 +110,8 @@ Typical flow for a request like "find inactive customers and send them a discoun
 - Node.js 20+
 - Postgres with pgvector enabled
 - Vercel Blob credentials
-- OpenAI API key for embeddings
+- AI Gateway API key as the primary model/embedding provider
+- OpenAI API key as fallback for OpenAI-backed requests when gateway is not configured
 - AWS SES credentials for campaign sending
 
 ### Environment
@@ -135,6 +136,12 @@ npm install
 npm run db:migrate
 npm run dev
 ```
+
+Provider preference:
+
+- `AI_GATEWAY_API_KEY` is primary for chat and embeddings
+- If `AI_GATEWAY_API_KEY` is missing, OpenAI-backed requests fall back to `OPENAI_API_KEY`
+- Non-OpenAI gateway models still require the gateway
 
 ### Run analytics manually
 

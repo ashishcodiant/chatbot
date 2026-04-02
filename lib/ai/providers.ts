@@ -15,19 +15,45 @@ export const myProvider = isTestEnvironment
     })()
   : null;
 
+function hasGatewayKey() {
+  return Boolean(process.env.AI_GATEWAY_API_KEY);
+}
+
+function hasOpenAiKey() {
+  return Boolean(process.env.OPENAI_API_KEY);
+}
+
+function isOpenAiModel(modelId: string) {
+  return modelId.startsWith("openai/");
+}
+
+function toDirectOpenAiModelId(modelId: string) {
+  return modelId.replace("openai/", "");
+}
+
 export function getLanguageModel(modelId: string) {
   console.log(`[getLanguageModel] Requested model: ${modelId}`);
   if (isTestEnvironment && myProvider) {
     return myProvider.languageModel(modelId);
   }
 
-  // If it's an OpenAI model and we have an API key, use it directly to bypass gateway
-  if (modelId.startsWith("openai/") && process.env.OPENAI_API_KEY) {
-    console.log(`[getLanguageModel] Using direct OpenAI provider for ${modelId}`);
-    return openai(modelId.replace("openai/", ""));
+  if (hasGatewayKey()) {
+    console.log(
+      `[getLanguageModel] Using AI Gateway as primary provider for ${modelId}`
+    );
+    return gateway.languageModel(modelId);
   }
 
-  console.log(`[getLanguageModel] Falling back to Gateway provider for ${modelId} (API Key present: ${!!process.env.OPENAI_API_KEY})`);
+  if (isOpenAiModel(modelId) && hasOpenAiKey()) {
+    console.log(
+      `[getLanguageModel] AI Gateway key missing, using direct OpenAI fallback for ${modelId}`
+    );
+    return openai(toDirectOpenAiModelId(modelId));
+  }
+
+  console.log(
+    `[getLanguageModel] Falling back to Gateway provider for ${modelId} without explicit AI_GATEWAY_API_KEY`
+  );
   return gateway.languageModel(modelId);
 }
 
@@ -36,9 +62,25 @@ export function getTitleModel() {
     return myProvider.languageModel("title-model");
   }
 
-  if (titleModel.id.startsWith("openai/") && process.env.OPENAI_API_KEY) {
-    return openai(titleModel.id.replace("openai/", ""));
+  if (hasGatewayKey()) {
+    return gateway.languageModel(titleModel.id);
+  }
+
+  if (isOpenAiModel(titleModel.id) && hasOpenAiKey()) {
+    return openai(toDirectOpenAiModelId(titleModel.id));
   }
 
   return gateway.languageModel(titleModel.id);
+}
+
+export function getEmbeddingModel(modelId: string) {
+  if (hasGatewayKey()) {
+    return gateway.embedding(modelId);
+  }
+
+  if (isOpenAiModel(modelId) && hasOpenAiKey()) {
+    return openai.embedding(toDirectOpenAiModelId(modelId));
+  }
+
+  return gateway.embedding(modelId);
 }

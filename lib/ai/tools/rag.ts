@@ -1,6 +1,5 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { openai } from "@ai-sdk/openai";
 import { embed, embedMany, tool, type UIMessageStreamWriter } from "ai";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -9,6 +8,7 @@ import { PDFParse } from "pdf-parse";
 import postgres from "postgres";
 import { z } from "zod";
 import { document, documentChunk } from "@/lib/db/schema";
+import { getEmbeddingModel } from "../providers";
 import type { ChatMessage } from "@/lib/types";
 
 let ragDb:
@@ -181,7 +181,7 @@ export async function processDocumentFromUrl({
   await onStatus?.(`Generated ${chunks.length} chunks. Creating embeddings...`);
 
   const { embeddings } = await embedMany({
-    model: openai.embedding("text-embedding-3-small"),
+    model: getEmbeddingModel("openai/text-embedding-3-small"),
     values: chunks,
   });
 
@@ -308,7 +308,7 @@ export const searchKnowledgeBase = ({ session, dataStream }: RAGToolProps) =>
       }
 
       const { embedding } = await embed({
-        model: openai.embedding("text-embedding-3-small"),
+        model: getEmbeddingModel("openai/text-embedding-3-small"),
         value: query,
       });
 
