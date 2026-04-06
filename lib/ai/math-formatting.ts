@@ -1,50 +1,18 @@
-const mathQueryPatterns = [
-  /\blatex\b/i,
-  /\bequation\b/i,
-  /\bformula\b/i,
-  /\bderive\b/i,
-  /\bderivative\b/i,
-  /\bintegral\b/i,
-  /\bmatrix\b/i,
-  /\bquadratic\b/i,
-  /\balgebra\b/i,
-  /\bgeometry\b/i,
-  /\btrigonometry\b/i,
-  /\bcalculus\b/i,
-  /\bprobability\b/i,
-  /\bstatistics\b/i,
-  /\banalytical?\b/i,
-  /\banalysis\b/i,
-  /\bsimplify\b/i,
-  /\bsolve\b/i,
-  /\bcalculate\b/i,
-  /\bcalculation\b/i,
-  /\bcompute\b/i,
-];
-
-export function isMathFormattingQuery(query?: string | null) {
-  if (!query) {
-    return false;
-  }
-
-  return mathQueryPatterns.some((pattern) => pattern.test(query));
-}
-
 export const mathFormattingPrompt = `
 **Mathematical Expression Rendering:**
-- When the user asks for calculations, formulas, proofs, derivations, or analytical explanations, format mathematical notation with LaTeX.
-- Use inline math for short expressions, like $E = mc^2$.
-- Use display math for standalone equations or final answers:
+- You MUST format all mathematical outputs, equations, and formulas in proper mathematical notation using LaTeX.
+- This applies to calculations, formula-based outputs, and analytical responses.
+- ONLY use the dollar sign delimiters for math.
+- Use inline math for short expressions: $E = mc^2$.
+- Use block/display math natively with double dollar signs:
 $$
 x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
 $$
-- Prefer LaTeX for fractions, powers, roots, summations, integrals, matrices, vectors, and Greek symbols.
-- Keep explanatory prose outside the math delimiters.
+- CRITICAL: NEVER use \\[ or \\] or \\( or \\) for math blocks. The markdown parser will break and show simple brackets. YOU MUST ALWAYS USE $$ ... $$ for block math and $ ... $ for inline math.
+- Format fractions, powers, roots, summations, integrals, matrices, vectors, and Greek symbols using LaTeX.
 - Do not put LaTeX equations inside code fences unless the user explicitly asks for raw source.
-- For multi-step solutions, separate the reasoning into short steps and render the important equations in LaTeX.
-- End technical solutions with a clearly labeled final expression or result when appropriate.
 `;
 
 export function getMathFormattingPrompt(query?: string | null) {
-  return isMathFormattingQuery(query) ? mathFormattingPrompt : "";
+  return mathFormattingPrompt;
 }

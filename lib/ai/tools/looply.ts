@@ -505,13 +505,13 @@ export const getCustomerByReference = ({ session, dataStream }: LooplyToolProps)
       // customers who haven't purchased very recently. The inverse filter
       // (inactiveForDaysAtLeast) already covers activity-based filtering.
       const safeActiveWithinDays = undefined;
-      // minChurnRisk = 0 means "any", maxChurnRisk = 1 means "any" — both meaningless
+      // minChurnRisk = 0 means "any" (AI hallucination), maxChurnRisk = 1 means "any", maxChurnRisk = 0 is also hallucinated
       const safeMinChurnRisk =
         filters.minChurnRisk !== undefined && filters.minChurnRisk > 0
           ? filters.minChurnRisk
           : undefined;
       const safeMaxChurnRisk =
-        filters.maxChurnRisk !== undefined && filters.maxChurnRisk < 1
+        filters.maxChurnRisk !== undefined && filters.maxChurnRisk < 1 && filters.maxChurnRisk > 0
           ? filters.maxChurnRisk
           : undefined;
 

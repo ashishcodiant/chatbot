@@ -5,15 +5,20 @@ import { DOMParser, type Node } from "prosemirror-model";
 import { Decoration, DecorationSet, type EditorView } from "prosemirror-view";
 import { renderToString } from "react-dom/server";
 
-import { MessageResponse } from "@/components/ai-elements/message";
+import { cjk } from "@streamdown/cjk";
+import { code } from "@streamdown/code";
+import { mermaid } from "@streamdown/mermaid";
+import { Streamdown } from "streamdown";
 
 import { documentSchema } from "./config";
 import type { UISuggestion } from "./suggestions";
 
+const editorPlugins = { cjk, code, mermaid };
+
 export const buildDocumentFromContent = (content: string) => {
   const parser = DOMParser.fromSchema(documentSchema);
   const stringFromMarkdown = renderToString(
-    <MessageResponse>{content}</MessageResponse>
+    <Streamdown plugins={editorPlugins}>{content}</Streamdown>
   );
   const tempContainer = document.createElement("div");
   tempContainer.innerHTML = stringFromMarkdown;
