@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, or, type SQL, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -11,6 +11,8 @@ import {
 
 const client = postgres(process.env.POSTGRES_URL ?? "");
 const db = drizzle(client);
+const uuidRegex =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Customer Queries
 export async function getTopCustomers(limit = 10) {
@@ -47,6 +49,71 @@ export async function getInactiveCustomers(days = 60) {
 export async function getCustomerById(id: string) {
   const [result] = await db.select().from(customer).where(eq(customer.id, id));
   return result;
+}
+
+export async function findCustomersByDirectReference({
+  userId,
+  reference,
+  limit = 5,
+}: {
+  userId: string;
+  reference: string;
+  limit?: number;
+}) {
+  const normalizedReference = reference.trim();
+  const directMatchConditions: SQL[] = [
+    sql`lower(${customer.email}) = lower(${normalizedReference})`,
+    sql`lower(${customer.name}) = lower(${normalizedReference})`,
+  ];
+
+  if (!normalizedReference) {
+    return [];
+  }
+
+  const customerNumberMatch = normalizedReference.match(/^customer\s+(\d+)$/i);
+
+  if (customerNumberMatch?.[1]) {
+    directMatchConditions.push(
+      sql`lower(${customer.name}) = lower(${`Customer ${customerNumberMatch[1]}`})`
+    );
+  }
+
+  if (uuidRegex.test(normalizedReference)) {
+    directMatchConditions.push(eq(customer.id, normalizedReference));
+  }
+
+  return await db
+    .select({
+      id: customer.id,
+      name: customer.name,
+      email: customer.email,
+      createdAt: customer.createdAt,
+      totalSpent: sql<string>`coalesce(sum(${transaction.amount}::numeric), 0)::text`,
+      orderCount: sql<number>`count(${transaction.id})`,
+      lastPurchaseAt: sql<Date | null>`max(${transaction.createdAt})`,
+      ltv: customerMetrics.ltv,
+      churnRisk: customerMetrics.churnRisk,
+      recency: customerMetrics.recency,
+      frequency: customerMetrics.frequency,
+    })
+    .from(customer)
+    .leftJoin(transaction, eq(customer.id, transaction.customerId))
+    .leftJoin(customerMetrics, eq(customer.id, customerMetrics.customerId))
+    .where(
+      or(...directMatchConditions)
+    )
+    .groupBy(
+      customer.id,
+      customer.name,
+      customer.email,
+      customer.createdAt,
+      customerMetrics.ltv,
+      customerMetrics.churnRisk,
+      customerMetrics.recency,
+      customerMetrics.frequency
+    )
+    .orderBy(desc(sql`coalesce(sum(${transaction.amount}::numeric), 0)`))
+    .limit(limit);
 }
 
 export type IndirectCustomerLookup = {
@@ -90,7 +157,7 @@ export async function findCustomersByIndirectReference({
   sortBy = "highest_spend",
   limit = 5,
 }: IndirectCustomerLookup) {
-  const whereConditions: SQL[] = [eq(customer.userId, userId)];
+  const whereConditions: SQL[] = [];
   const havingConditions: SQL[] = [];
 
   if (emailDomain) {
@@ -102,11 +169,15 @@ export async function findCustomersByIndirectReference({
   }
 
   if (createdAfter) {
-    whereConditions.push(gte(customer.createdAt, createdAfter));
+    whereConditions.push(
+      sql`${customer.createdAt} >= ${createdAfter.toISOString()}::timestamptz`
+    );
   }
 
   if (createdBefore) {
-    whereConditions.push(lte(customer.createdAt, createdBefore));
+    whereConditions.push(
+      sql`${customer.createdAt} <= ${createdBefore.toISOString()}::timestamptz`
+    );
   }
 
   if (minChurnRisk !== undefined) {
@@ -144,17 +215,19 @@ export async function findCustomersByIndirectReference({
   if (inactiveForDaysAtLeast !== undefined) {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - inactiveForDaysAtLeast);
+    const cutoffIso = cutoff.toISOString();
 
     havingConditions.push(
-      sql`max(${transaction.createdAt}) is null or max(${transaction.createdAt}) <= ${cutoff}`
+      sql`max(${transaction.createdAt}) is null or max(${transaction.createdAt}) <= ${cutoffIso}::timestamptz`
     );
   }
 
   if (activeWithinDays !== undefined) {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - activeWithinDays);
+    const cutoffIso = cutoff.toISOString();
 
-    havingConditions.push(sql`max(${transaction.createdAt}) >= ${cutoff}`);
+    havingConditions.push(sql`max(${transaction.createdAt}) >= ${cutoffIso}::timestamptz`);
   }
 
   const orderByClause = (() => {

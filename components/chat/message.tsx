@@ -12,9 +12,18 @@ import {
   ToolInput,
   ToolOutput,
 } from "../ai-elements/tool";
+import {
+  CampaignLogsWidget,
+  ChurnRiskCustomersWidget,
+  CustomerDetailsWidget,
+  CustomerLtvWidget,
+  CustomerReferenceWidget,
+  TopCustomersWidget,
+} from "./business-widgets";
 import { useDataStream } from "./data-stream-provider";
 import { DocumentToolResult } from "./document";
 import { DocumentPreview } from "./document-preview";
+import { ExecutionVisibility } from "./execution-visibility";
 import { SparklesIcon } from "./icons";
 import { MessageActions } from "./message-actions";
 import { MessageReasoning } from "./message-reasoning";
@@ -48,7 +57,7 @@ const PurePreviewMessage = ({
     (part) => part.type === "file"
   );
 
-  useDataStream();
+  const { executionEvents } = useDataStream();
 
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
@@ -218,6 +227,181 @@ const PurePreviewMessage = ({
       );
     }
 
+    if (type === "tool-getTopCustomers") {
+      const { toolCallId, state } = part;
+
+      if (state === "output-available") {
+        return (
+          <div className="w-[min(100%,860px)]" key={toolCallId}>
+            <TopCustomersWidget customers={part.output} />
+          </div>
+        );
+      }
+
+      return (
+        <Tool
+          className="w-[min(100%,520px)]"
+          defaultOpen={true}
+          key={toolCallId}
+        >
+          <ToolHeader
+            state={state}
+            title="Top customers"
+            type="tool-getTopCustomers"
+          />
+          <ToolContent>
+            {state === "input-available" && <ToolInput input={part.input} />}
+          </ToolContent>
+        </Tool>
+      );
+    }
+
+    if (type === "tool-getChurnRiskCustomers") {
+      const { toolCallId, state } = part;
+
+      if (state === "output-available") {
+        return (
+          <div className="w-[min(100%,860px)]" key={toolCallId}>
+            <ChurnRiskCustomersWidget
+              customers={part.output}
+              days={
+                part.input && "days" in part.input ? part.input.days : undefined
+              }
+            />
+          </div>
+        );
+      }
+
+      return (
+        <Tool
+          className="w-[min(100%,520px)]"
+          defaultOpen={true}
+          key={toolCallId}
+        >
+          <ToolHeader
+            state={state}
+            title="Churn risk customers"
+            type="tool-getChurnRiskCustomers"
+          />
+          <ToolContent>
+            {state === "input-available" && <ToolInput input={part.input} />}
+          </ToolContent>
+        </Tool>
+      );
+    }
+
+    if (type === "tool-getCustomerLTV") {
+      const { toolCallId, state } = part;
+
+      return (
+        <Tool
+          className="w-[min(100%,860px)]"
+          defaultOpen={state !== "output-available"}
+          key={toolCallId}
+        >
+          <ToolHeader
+            state={state}
+            title="Customer lifetime value"
+            type="tool-getCustomerLTV"
+          />
+          <ToolContent>
+            {state === "input-available" && <ToolInput input={part.input} />}
+            {state === "output-available" && (
+              <CustomerLtvWidget result={part.output} />
+            )}
+          </ToolContent>
+        </Tool>
+      );
+    }
+
+    if (type === "tool-getCustomerByReference") {
+      const { toolCallId, state } = part;
+
+      if (state === "output-available") {
+        return (
+          <div className="w-[min(100%,880px)]" key={toolCallId}>
+            <CustomerReferenceWidget result={part.output} />
+          </div>
+        );
+      }
+
+      return (
+        <Tool
+          className="w-[min(100%,520px)]"
+          defaultOpen={true}
+          key={toolCallId}
+        >
+          <ToolHeader
+            state={state}
+            title="Customer lookup"
+            type="tool-getCustomerByReference"
+          />
+          <ToolContent>
+            {state === "input-available" && <ToolInput input={part.input} />}
+            {state === "output-error" && (
+              <ToolOutput errorText={part.errorText} output={part.output} />
+            )}
+          </ToolContent>
+        </Tool>
+      );
+    }
+
+    if (type === "tool-getCustomerDetails") {
+      const { toolCallId, state } = part;
+
+      if (state === "output-available") {
+        return (
+          <div className="w-[min(100%,880px)]" key={toolCallId}>
+            <CustomerDetailsWidget result={part.output} />
+          </div>
+        );
+      }
+
+      return (
+        <Tool
+          className="w-[min(100%,520px)]"
+          defaultOpen={true}
+          key={toolCallId}
+        >
+          <ToolHeader
+            state={state}
+            title="Customer profile"
+            type="tool-getCustomerDetails"
+          />
+          <ToolContent>
+            {state === "input-available" && <ToolInput input={part.input} />}
+            {state === "output-error" && (
+              <ToolOutput errorText={part.errorText} output={part.output} />
+            )}
+          </ToolContent>
+        </Tool>
+      );
+    }
+
+    if (type === "tool-getCampaignLogs") {
+      const { toolCallId, state } = part;
+
+      return (
+        <Tool
+          className="w-[min(100%,860px)]"
+          defaultOpen={state !== "output-available"}
+          key={toolCallId}
+        >
+          <ToolHeader
+            state={state}
+            title="Campaign delivery logs"
+            type="tool-getCampaignLogs"
+          />
+          <ToolContent>
+            {state === "input-available" && <ToolInput input={part.input} />}
+            {state === "output-available" && (
+              <CampaignLogsWidget result={part.output} />
+            )}
+          </ToolContent>
+        </Tool>
+      );
+    }
+
     if (type === "tool-createDocument") {
       const { toolCallId } = part;
 
@@ -315,14 +499,22 @@ const PurePreviewMessage = ({
     />
   );
 
+  const executionPanel =
+    isAssistant && isLoading ? <ExecutionVisibility message={message} /> : null;
+
   const content = isThinking ? (
-    <div className="flex h-[calc(13px*1.65)] items-center text-[13px] leading-[1.65]">
-      <Shimmer className="font-medium" duration={1}>
-        Thinking...
-      </Shimmer>
-    </div>
+    executionEvents.length > 0 ? (
+      executionPanel
+    ) : (
+      <div className="flex h-[calc(13px*1.65)] items-center text-[13px] leading-[1.65]">
+        <Shimmer className="font-medium" duration={1}>
+          Preparing request...
+        </Shimmer>
+      </div>
+    )
   ) : (
     <>
+      {executionPanel}
       {attachments}
       {parts}
       {actions}
@@ -363,6 +555,8 @@ const PurePreviewMessage = ({
 export const PreviewMessage = PurePreviewMessage;
 
 export const ThinkingMessage = () => {
+  const { executionEvents } = useDataStream();
+
   return (
     <div
       className="group/message w-full"
@@ -376,11 +570,15 @@ export const ThinkingMessage = () => {
           </div>
         </div>
 
-        <div className="flex h-[calc(13px*1.65)] items-center text-[13px] leading-[1.65]">
-          <Shimmer className="font-medium" duration={1}>
-            Thinking...
-          </Shimmer>
-        </div>
+        {executionEvents.length > 0 ? (
+          <ExecutionVisibility />
+        ) : (
+          <div className="flex h-[calc(13px*1.65)] items-center text-[13px] leading-[1.65]">
+            <Shimmer className="font-medium" duration={1}>
+              Preparing request...
+            </Shimmer>
+          </div>
+        )}
       </div>
     </div>
   );

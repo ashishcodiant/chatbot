@@ -22,6 +22,7 @@ import { getChatHistoryPaginationKey } from "@/components/chat/sidebar-history";
 import { toast } from "@/components/chat/toast";
 import type { VisibilityType } from "@/components/chat/visibility-selector";
 import { useAutoResume } from "@/hooks/use-auto-resume";
+import { parseExecutionEventFromTextDelta } from "@/lib/execution";
 import { DEFAULT_CHAT_MODEL } from "@/lib/ai/models";
 import type { Vote } from "@/lib/db/schema";
 import { ChatbotError } from "@/lib/errors";
@@ -58,7 +59,11 @@ function extractChatId(pathname: string): string | null {
 
 export function ActiveChatProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { setDataStream } = useDataStream();
+  const {
+    setDataStream,
+    setExecutionEvents,
+    clearExecutionEvents,
+  } = useDataStream();
   const { mutate } = useSWRConfig();
 
   const chatIdFromUrl = extractChatId(pathname);
@@ -153,6 +158,32 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     }),
     onData: (dataPart) => {
       setDataStream((ds) => (ds ? [...ds, dataPart] : []));
+
+      if (dataPart.type === "data-textDelta") {
+        const parsedEvent = parseExecutionEventFromTextDelta(dataPart.data);
+
+        if (parsedEvent) {
+          setExecutionEvents((events) => {
+            const lastEvent = events.at(-1);
+
+            if (
+              lastEvent?.action === parsedEvent.action &&
+              lastEvent.kind === parsedEvent.kind
+            ) {
+              return events;
+            }
+
+            return [
+              ...events,
+              {
+                ...parsedEvent,
+                id: generateUUID(),
+                timestamp: new Date().toISOString(),
+              },
+            ];
+          });
+        }
+      }
     },
     onFinish: () => {
       mutate(unstable_serialize(getChatHistoryPaginationKey));
@@ -195,8 +226,45 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       if (isNewChat) {
         setMessages([]);
       }
+      clearExecutionEvents();
     }
-  }, [chatId, isNewChat, setMessages]);
+  }, [chatId, isNewChat, setMessages, clearExecutionEvents]);
+
+  const previousStatusRef = useRef(status);
+  useEffect(() => {
+    const previousStatus = previousStatusRef.current;
+
+    if (previousStatus !== status) {
+      if (status === "submitted") {
+        clearExecutionEvents();
+        setExecutionEvents([
+          {
+            id: generateUUID(),
+            action: "Preparing request...",
+            detail: "Analyzing your query and deciding which action to take first.",
+            kind: "lifecycle",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      }
+
+      if (status === "streaming" && previousStatus !== "streaming") {
+        setExecutionEvents((events) => [
+          ...events,
+          {
+            id: generateUUID(),
+            action: "Processing results...",
+            detail:
+              "Streaming tool output and composing the assistant response in real time.",
+            kind: "lifecycle",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      }
+    }
+
+    previousStatusRef.current = status;
+  }, [status, clearExecutionEvents, setExecutionEvents]);
 
   useEffect(() => {
     if (chatData && !isNewChat) {

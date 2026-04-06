@@ -28,6 +28,7 @@ import {
   DEFAULT_CHAT_MODEL,
   getCapabilities,
 } from "@/lib/ai/models";
+import { getToolStrategyForQuery } from "@/lib/ai/customer-query-routing";
 import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { createDocument } from "@/lib/ai/tools/create-document";
@@ -37,6 +38,7 @@ import {
   createCampaign,
   getCampaignLogs,
   getCustomerByReference,
+  getCustomerDetails,
   getChurnRiskCustomers,
   getCustomerLTV,
   getTopCustomers,
@@ -307,6 +309,13 @@ export async function POST(request: Request) {
     const modelReadyMessages = uiMessages.map(sanitizeMessageForModel);
     const pdfParts = getPdfParts(message);
     const modelMessages = await convertToModelMessages(modelReadyMessages);
+    const latestUserMessage = [...uiMessages]
+      .reverse()
+      .find((currentMessage) => currentMessage.role === "user");
+    const latestUserMessageText = latestUserMessage
+      ? getTextFromMessage(latestUserMessage)
+      : "";
+    const toolStrategy = getToolStrategyForQuery(latestUserMessageText);
 
     const stream = createUIMessageStream({
       originalMessages: isToolApprovalFlow ? uiMessages : undefined,
@@ -350,29 +359,15 @@ export async function POST(request: Request) {
             requestHints,
             supportsTools,
             userPreferences: userMemory,
+            latestUserMessage: latestUserMessageText,
+            toolStrategyPrompt: toolStrategy.orchestrationPrompt,
           }),
           messages: modelMessages,
-          stopWhen: stepCountIs(5),
+          stopWhen: stepCountIs(toolStrategy.maxSteps),
           experimental_activeTools:
             isReasoningModel && !supportsTools
               ? []
-              : [
-                  "getWeather",
-                  "createDocument",
-                  "editDocument",
-                  "updateDocument",
-                  "requestSuggestions",
-                  "getTopCustomers",
-                  "getChurnRiskCustomers",
-                  "getCustomerByReference",
-                  "getCustomerLTV",
-                  "createCampaign",
-                  "getCampaignLogs",
-                  "sendCampaign",
-                  "processDocument",
-                  "searchKnowledgeBase",
-                  "updateUserPreferences",
-                ],
+              : toolStrategy.activeTools,
           providerOptions: {
             ...(modelConfig?.gatewayOrder && {
               gateway: { order: modelConfig.gatewayOrder },
@@ -408,6 +403,7 @@ export async function POST(request: Request) {
               session,
               dataStream,
             }),
+            getCustomerDetails: getCustomerDetails({ session, dataStream }),
             getCustomerLTV: getCustomerLTV({ session, dataStream }),
             createCampaign: createCampaign({ session, dataStream }),
             getCampaignLogs: getCampaignLogs({ session, dataStream }),

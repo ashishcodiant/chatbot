@@ -64,12 +64,12 @@ export const getWeather = tool({
     }
 
     const response = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m&hourly=temperature_2m&daily=sunrise,sunset&timezone=auto`
+      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature&hourly=temperature_2m,relative_humidity_2m&daily=sunrise,sunset,temperature_2m_max,temperature_2m_min&timezone=auto`
     );
 
     const weatherData = await response.json();
 
-    if ("city" in input) {
+    if (input.city) {
       weatherData.cityName = input.city;
     }
 

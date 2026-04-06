@@ -1,12 +1,14 @@
 import type { InferUITool, UIMessage } from "ai";
 import { z } from "zod";
 import type { ArtifactKind } from "@/components/chat/artifact";
+import type { ExecutionEvent } from "@/lib/execution";
 import type { createDocument } from "./ai/tools/create-document";
 import type { getWeather } from "./ai/tools/get-weather";
 import type {
   createCampaign,
   getCampaignLogs,
   getCustomerByReference,
+  getCustomerDetails,
   getChurnRiskCustomers,
   getCustomerLTV,
   getTopCustomers,
@@ -37,6 +39,7 @@ type getChurnRiskCustomersTool = InferUITool<
 type getCustomerByReferenceTool = InferUITool<
   ReturnType<typeof getCustomerByReference>
 >;
+type getCustomerDetailsTool = InferUITool<ReturnType<typeof getCustomerDetails>>;
 type getCustomerLTVTool = InferUITool<ReturnType<typeof getCustomerLTV>>;
 type createCampaignTool = InferUITool<ReturnType<typeof createCampaign>>;
 type getCampaignLogsTool = InferUITool<ReturnType<typeof getCampaignLogs>>;
@@ -57,6 +60,7 @@ export type ChatTools = {
   getTopCustomers: getTopCustomersTool;
   getChurnRiskCustomers: getChurnRiskCustomersTool;
   getCustomerByReference: getCustomerByReferenceTool;
+  getCustomerDetails: getCustomerDetailsTool;
   getCustomerLTV: getCustomerLTVTool;
   createCampaign: createCampaignTool;
   getCampaignLogs: getCampaignLogsTool;
@@ -86,6 +90,8 @@ export type ChatMessage = UIMessage<
   CustomUIDataTypes,
   ChatTools
 >;
+
+export type { ExecutionEvent };
 
 export type Attachment = {
   name: string;

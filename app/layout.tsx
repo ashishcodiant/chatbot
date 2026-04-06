@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Raleway, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -8,24 +8,26 @@ import { SessionProvider } from "next-auth/react";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://chat.vercel.ai"),
-  title: "Next.js Chatbot Template",
-  description: "Next.js chatbot template using the AI SDK.",
+  title: "Looply AI — Business Assistant",
+  description: "AI-powered business intelligence for your customer data.",
 };
 
 export const viewport = {
   maximumScale: 1,
 };
 
-const geist = Geist({
+const raleway = Raleway({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-geist",
+  variable: "--font-raleway",
+  weight: ["300", "400", "500", "600", "700", "800"],
 });
 
-const geistMono = Geist_Mono({
+const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-geist-mono",
+  variable: "--font-mono",
+  weight: ["400", "500"],
 });
 
 const LIGHT_THEME_COLOR = "hsl(0 0% 100%)";
@@ -55,7 +57,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      className={`${geist.variable} ${geistMono.variable}`}
+      className={`${raleway.variable} ${jetbrainsMono.variable}`}
       lang="en"
       suppressHydrationWarning
     >
